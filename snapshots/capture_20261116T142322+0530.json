@@ -1,0 +1,8 @@
+{
+  "captured_at": "2026-11-16T08:53:22+00:00",
+  "discovery_url": "https://gbfs.divvybikes.com/gbfs/gbfs.json",
+  "feeds": {
+    "station_information": "https://gbfs.lyft.com/gbfs/1.1/chi/en/station_information.json",
+    "station_status": "https://gbfs.lyft.com/gbfs/1.1/chi/en/station_status.json"
+  }
+}
