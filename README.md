@@ -8,32 +8,23 @@ Divvy is Chicago's bike-share service. It is the source of the trip records and 
 
 ## Architecture
 
-The pipeline keeps each source at its natural level of detail. It does not combine every source into one large table.
+The Python ETL reads and checks each source, then loads it into the matching SQLite table:
 
-```mermaid
-flowchart LR
-  A[Divvy trip CSV archives] --> R[Raw files]
-  B[Open-Meteo daily weather] --> R
-  C[Divvy GBFS station feeds] --> S[Timestamped raw JSON snapshots]
-
-  R --> E[Python ETL: normalize and validate]
-  S --> E
-  E --> T[(SQLite database)]
-
-  E -->|one row per ride| TR[trips]
-  E -->|one row per day| W[daily_weather]
-  E -->|station details| ST[stations]
-  E -->|one row per station per capture| SS[station_snapshots]
-
-  TR -->|origin and destination station keys| ST
-  SS -->|station key| ST
-  TR -->|trip start date| W
-  TR --> Q[SQL analysis and crew recommendations]
-  W --> Q
-  SS --> Q
+```text
+Divvy trip CSV files ---------------------> trips
+Divvy GBFS station information ----------> stations
+Divvy GBFS station status ---------------> station_snapshots
+Open-Meteo daily weather ----------------> daily_weather
 ```
 
-The station information and station status feeds are first matched by their GBFS station ID. Known trip stations are then linked to live stations using a shared station key, based on an exact normalized station name. Weather is joined to trips by the trip start date.
+The connections are:
+
+- The two GBFS feeds are matched by `station_id` before loading.
+- A trip's start and end `station_key` values link it to `stations`.
+- A trip's calendar start date links it to `daily_weather.date`.
+- Each `station_snapshots` row links to `stations` by `station_key`.
+
+Each table keeps its own level of detail: one trip per row, one weather record per day, and one station-status record per station per snapshot. This avoids mixing unrelated records into one large table.
 
 ## Data used
 
