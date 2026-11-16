@@ -1,0 +1,9 @@
+divvy.db
+*.db-wal
+*.db-shm
+data/raw/*.zip
+data/raw/*.json
+logs/*.csv
+__pycache__/
+*.py[cod]
+
