@@ -8,27 +8,18 @@ Divvy is Chicago's bike-share service. It is the source of the trip records and 
 
 ## Architecture
 
-The Python ETL reads and checks each source, then loads it into related SQLite tables. This plain-text diagram shows the same flow without relying on image or diagram rendering:
+The Python ETL reads and checks each source, then loads it into related SQLite tables.
 
-```text
-THREE PUBLIC SOURCES             RAW INPUTS              PYTHON ETL             SQLITE TABLES
+![Architecture diagram showing Divvy trip files, GBFS station feeds, and Open-Meteo weather flowing through Python ETL into related SQLite tables.](architecture.svg)
 
-Divvy trip CSV archives  ------> data/raw  ----------\
-Open-Meteo daily weather ------> data/raw  -----------+--> standardize, ------> trips
-Divvy station_information --\                          validate, and          daily_weather
-Divvy station_status -------> match by station_id ----/   load                 stations
-                               save raw JSON snapshots                         station_snapshots
-                                                                              station_aliases
+The connections are:
 
-CONNECTIONS INSIDE THE DATABASE
+- The two GBFS feeds are matched by `station_id` before loading.
+- A trip's start and end `station_key` values link it to `stations`.
+- A trip's calendar start date links it to `daily_weather.date`.
+- Each `station_snapshots` row links to `stations` by `station_key`.
 
-trips.start_station_key  ---------------------> stations.station_key
-trips.end_station_key    ---------------------> stations.station_key
-station_snapshots.station_key  ---------------> stations.station_key
-date(trips.started_at)  ----------------------> daily_weather.date
-```
-
-The two GBFS feeds are first matched by `station_id`. Historical trip endpoints link to stations by `station_key`; a trip's start date links it to that day's weather. Each table keeps its own level of detail: one trip per row, one weather record per day, and one station-status record per station per snapshot. This avoids mixing unrelated records into one large table.
+Each table keeps its own level of detail: one trip per row, one weather record per day, and one station-status record per station per snapshot. This avoids mixing unrelated records into one large table.
 
 ## Data used
 
