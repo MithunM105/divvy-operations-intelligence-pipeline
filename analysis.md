@@ -42,7 +42,7 @@ Most classifiable trips end at a different station from where they began. This s
 
 ## 3. Trip duration by hour and day of week
 
-The query returns trip counts and average durations for every hour-and-weekday combination. These examples show two patterns:
+The query returns trip counts and average durations for each observed hour-and-weekday combination. These examples show two patterns:
 
 - **Weekday commute-like activity:** 17:00 is the busiest hour overall, with 31,348 trips; 08:00 has 22,578. Each weekday's busiest hour is 17:00. Tuesday at 08:00 has 4,007 trips averaging 11.1 minutes.
 - **Longer weekend afternoon rides:** Saturday at 14:00 has 4,157 trips averaging 20.3 minutes. Sunday at 14:00 has 3,317 trips averaging 21.0 minutes. Average trip duration is 18.0 minutes on Saturdays and 17.7 on Sundays, compared with 13.1–14.3 minutes on weekdays.
