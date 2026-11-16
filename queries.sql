@@ -11,7 +11,8 @@ SELECT COUNT(*) AS trips,
        SUM(start_station_key IS NOT NULL AND end_station_key IS NOT NULL) AS classifiable_station_pairs,
        SUM(start_station_key = end_station_key) AS same_station_trips,
        ROUND(100.0 * SUM(start_station_key = end_station_key) /
-             NULLIF(SUM(start_station_key IS NOT NULL AND end_station_key IS NOT NULL),0), 2) AS same_station_pct
+             NULLIF(SUM(start_station_key IS NOT NULL AND end_station_key IS NOT NULL),0), 2) AS same_station_pct_of_classifiable,
+       ROUND(100.0 * SUM(start_station_key = end_station_key) / COUNT(*), 2) AS same_station_pct_of_all_trips
 FROM trips;
 
 -- 2) Top origin-destination pairs, excluding same-station journeys.
