@@ -1,55 +1,112 @@
-# Chicago Divvy Intelligence Pipeline
+# Chicago Divvy Bike-Share Pipeline
 
-An end-to-end, local ETL project that combines Divvy historical trips, Chicago weather, and a live GBFS station snapshot into a queryable SQLite database. The pipeline uses Python's standard library only and records raw GBFS responses before loading them.
+## What this project does
 
-## Selected data and capture
+This project combines Chicago Divvy bike trips, current station information, and historical weather in a local SQLite database. It then uses SQL to answer questions about trip patterns and which stations may need bikes moved.
 
-- Historical trip months: December 2019, January 2021, and February 2021. December 2019 comes from Divvy's quarterly legacy archive and is filtered by trip start date; the 2021 months are monthly CSV archives.
-- Weather: Open-Meteo daily mean temperature and precipitation at 41.88, -87.63 for the same 90 calendar days.
-- Live data: `station_information` and `station_status`, discovered from the GBFS discovery feed. Capture time and feed URLs are recorded in each `snapshots/capture_*.json` file. Raw feed bodies are retained beside the metadata.
-- Sources: [Divvy system data](https://divvybikes.com/system-data), [GBFS discovery](https://gbfs.divvybikes.com/gbfs/gbfs.json), and [Open-Meteo historical archive](https://open-meteo.com/en/docs/historical-weather-api).
-
-The [Divvy Data License Agreement](https://divvybikes.com/data-license-agreement) prohibits distributing the trip records as a stand-alone dataset. The public repository contains the pipeline, aggregate analysis, and the required GBFS snapshot; it does not commit the trip ZIPs, trip-level SQLite database, or row-level validation extracts. `etl.py` downloads the trip archives when run and builds those local outputs.
+Divvy is Chicago's bike-share service. It is the source of the trip records and station feeds; it is not itself an API. The live station data comes through Divvy's public GBFS JSON feeds, and the weather comes from Open-Meteo. These public sources require **no API keys**. The pipeline does need internet access when it downloads data.
 
 ## Architecture
 
-`etl.py` downloads source archives and weather JSON to `data/raw/`, captures timestamped GBFS JSON to `snapshots/`, normalizes trips into a common shape, validates records, and loads everything to `divvy.db`. `schema.sql` defines the SQLite tables, keys, constraints, and indexes. `queries.sql` contains the analytical SQL. `analysis.md` records measured results and the operational interpretation. Validation rows are written to `logs/quality_report.csv` and live-feed checks to `logs/feed_quality_report.csv`.
+The pipeline keeps each source at its natural level of detail. It does not combine every source into one large table.
 
-Station identity is reconciled using a normalized exact station name when one is present. Source-specific IDs are retained in `station_aliases`. If a historical trip has an ID but no station name, the pipeline creates a source-scoped station key rather than guessing that it matches a similarly numbered live ID. If both name and ID are absent, the trip endpoint stays null and is counted as unmatched instead of being grouped into a synthetic station. The analysis identifies the number of exact name matches and keeps unresolved stations visible.
+```mermaid
+flowchart LR
+  A[Divvy trip CSV archives] --> R[Raw files]
+  B[Open-Meteo daily weather] --> R
+  C[Divvy GBFS station feeds] --> S[Timestamped raw JSON snapshots]
 
-## Setup and run
+  R --> E[Python ETL: normalize and validate]
+  S --> E
+  E --> T[(SQLite database)]
 
-Requires Python 3.11 or newer and outbound HTTPS access to the public source endpoints. No third-party packages are needed; the delivered database was built with Python 3.13.9.
+  E -->|one row per ride| TR[trips]
+  E -->|one row per day| W[daily_weather]
+  E -->|station details| ST[stations]
+  E -->|one row per station per capture| SS[station_snapshots]
+
+  TR -->|origin and destination station keys| ST
+  SS -->|station key| ST
+  TR -->|trip start date| W
+  TR --> Q[SQL analysis and crew recommendations]
+  W --> Q
+  SS --> Q
+```
+
+The station information and station status feeds are first matched by their GBFS station ID. Known trip stations are then linked to live stations using a shared station key, based on an exact normalized station name. Weather is joined to trips by the trip start date.
+
+## Data used
+
+- **Trips:** December 2019, January 2021, and February 2021. The December 2019 file is a quarterly archive, so the pipeline filters it to December trips.
+- **Live stations:** GBFS station information and station status. The raw JSON responses and capture time are saved in `snapshots/`. The snapshot used for the written findings was captured on **November 16, 2026 at 14:23:22 +05:30**.
+- **Weather:** Open-Meteo daily mean temperature and precipitation for Chicago (latitude 41.88, longitude -87.63) for the same 90 calendar days.
+
+The public repository includes the code, written analysis, and a raw GBFS snapshot. It does not include the Divvy trip archives, the local trip database, or row-level quality extracts. Divvy's [data license agreement](https://divvybikes.com/data-license-agreement) restricts distributing trip records as a stand-alone dataset. Running the ETL downloads the trip archives and builds the database on your computer.
+
+## Run the project
+
+You need Python 3.11 or newer and internet access. No extra Python packages or API keys are needed.
+
+Open PowerShell or the VS Code terminal in this project folder and run:
 
 ```powershell
-cd chicago-divvy-pipeline
 python etl.py
 ```
 
-The script creates `divvy.db`, downloads any missing historical ZIPs and weather responses, and captures a new live snapshot on every run. Historical trips are idempotent by month and source trip ID; each run refreshes the validation reports. GBFS snapshots are intentionally append-only so each run preserves its own capture.
+The script downloads any missing trip or weather files, captures a fresh live station snapshot, validates and loads the data, and writes `divvy.db`. If Python is not on your PATH, run the script using the full path to your Python executable.
 
-To inspect SQL results with Python:
+To see trip counts by month:
 
 ```powershell
-python -c "import sqlite3; c=sqlite3.connect('divvy.db'); print(c.execute('select source_month,count(*) from trips group by 1').fetchall())"
+python -c "import sqlite3; c=sqlite3.connect('divvy.db'); print(c.execute('SELECT source_month, COUNT(*) FROM trips GROUP BY source_month ORDER BY source_month').fetchall())"
 ```
 
-## Data modeling and assumptions
+To explore the database visually, open `divvy.db` in DB Browser for SQLite, choose **Execute SQL**, then run the statements in `queries.sql` one at a time.
 
-- The three months are intentionally discontinuous to cover the legacy-to-modern schema change.
-- All trip durations are recomputed from start and end timestamps. Missing or invalid timestamps, nonpositive durations, negative durations, and durations over 24 hours are rejected with the raw row retained in the quality report.
-- The quarterly 2019 file is filtered to December based on `start_time`; October and November rows are outside the selected period and are counted separately in the run log.
-- Exact normalized station-name matching is intentionally conservative. It avoids fuzzy merges across similarly named stations; unmatched source IDs remain source-scoped.
-- Daily weather is joined to trip start date in Chicago local time. A rainy day means precipitation greater than zero millimeters.
-- A live station is considered for the rebalancing ranking only if it is installed, renting, has capacity of at least 10, and its reported bike count does not exceed reported capacity. This avoids ranking tiny racks or contradictory status rows above regular operating stations.
+The trip load is idempotent: rerunning the ETL does not add the same trip twice. Live station snapshots are append-only, so a new run can produce different station-stress and crew-ranking results.
 
-## Challenges and tool use
+## How the data is organized
 
-The 2019 archive is a quarterly file with `trip_id`, `start_time`, `from_station_id`, and `usertype`, while the 2021 files use `ride_id`, `started_at`, `start_station_id`, and `member_casual`. The normalizer resolves fields by canonicalized column names and uses values, rather than month-specific transformations. Some 2021 station names are blank; those trips stay queryable using source-scoped IDs but are not asserted to match current GBFS stations.
+The database uses a relational design:
 
-Codex helped draft the pipeline, schema, SQL, and report. On the first execution I caught a legacy-schema detection bug caused by checking the unnormalized header spelling; I corrected it to use the canonical field name and reran the pipeline. I also caught live status records where available bikes exceed the metadata capacity and added a feed-quality report plus an exclusion rule for rebalancing candidates.
+- `trips`: one row per accepted ride, with start and end station keys.
+- `stations`: station identity and metadata.
+- `station_aliases`: source-specific station IDs mapped to a station key.
+- `daily_weather`: one row per date.
+- `station_snapshots`: one row per station for each capture time.
+- `rejected_records`: trip rows that failed validation, with the reason.
 
-## Production follow-ups
+The table definitions, primary keys, foreign keys, uniqueness rules, and indexes are in `schema.sql`. A trip's start date joins it to `daily_weather`; known station keys connect trips and snapshots to `stations`.
 
-For production, schedule ingestion with retries and source checksums, store raw files in object storage, use a warehouse for larger history, version schema mappings, add freshness/volume alerts, preserve quality reports by run ID, and estimate expected station pressure by matching weekday and time of day instead of relying on a three-month aggregate.
+## How the ETL handles real source differences
+
+The 2019 trip archive and 2021 files use different column names. The ETL recognizes equivalent names, converts the records into one trip shape, standardizes rider types, and calculates duration from the timestamps. It reads CSV rows as a stream rather than loading the complete archive into memory.
+
+Station IDs are not assumed to mean the same thing across different sources or years. If a station name is present, the pipeline matches its normalized exact name. If only a source ID is available, it keeps a source-specific station identity. If neither name nor ID is available, it leaves that endpoint unmatched rather than guessing.
+
+Invalid trips and live-feed conflicts are reported in `logs/quality_report.csv` and `logs/feed_quality_report.csv`. Original live JSON is preserved in `snapshots/`.
+
+## Results at a glance
+
+The selected periods contain **301,304 accepted trips**. In the analysis:
+
+- Casual riders have a higher same-station trip share than members in all three periods.
+- About **4.08%** of trips with classifiable station endpoints return to the same station; that is **3.82% of all accepted trips**.
+- Rainy days average about **30.9% fewer trips** than dry days in this sample.
+- A rule-based ranking combines current station occupancy with historical trip direction to suggest five stations for rebalancing.
+
+These are findings for the selected data, not proof that weather or a historical trip pattern caused a live station's current status. See `analysis.md` for the calculations, evidence, and limitations.
+
+## Data checks and challenges
+
+The selected files contained trips longer than 24 hours, zero or negative durations, missing station names or IDs, and seven live status rows with more bikes available than the station's listed capacity. The ETL reports invalid trip rows, preserves the raw live feed, and excludes contradictory status rows from the crew ranking.
+
+During development, I caught and fixed a legacy-file detection issue by checking the normalized column name. I also added checks for live bike counts that exceed station capacity.
+
+## Tools and next steps
+
+Codex helped draft parts of the ETL, schema, SQL, and analysis. The issues caught during development are described above.
+
+For a production system, I would add run-level history and alerts, batch database writes, and use a reviewed station crosswalk that can reconcile renamed stations. PostgreSQL or a managed warehouse would be appropriate if many users or services needed concurrent access; SQLite fits this local assignment.
+
 
