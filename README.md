@@ -10,7 +10,28 @@ Divvy is Chicago's bike-share service. It is the source of the trip records and 
 
 The Python ETL reads and checks each source, then loads it into related SQLite tables.
 
-![Architecture diagram showing Divvy trip files, GBFS station feeds, and Open-Meteo weather flowing through Python ETL into related SQLite tables.](architecture.svg)
+```mermaid
+flowchart LR
+  A[Divvy trip CSV archives] --> R[Raw files]
+  B[Open-Meteo daily weather] --> R
+  C[Divvy GBFS station feeds] --> S[Timestamped raw JSON snapshots]
+
+  R --> E[Python ETL: normalize and validate]
+  S --> E
+  E --> T[(SQLite database)]
+
+  E -->|one row per ride| TR[trips]
+  E -->|one row per day| W[daily_weather]
+  E -->|station details| ST[stations]
+  E -->|one row per station per capture| SS[station_snapshots]
+
+  TR -->|origin and destination station keys| ST
+  SS -->|station key| ST
+  TR -->|trip start date| W
+  TR --> Q[SQL analysis and crew recommendations]
+  W --> Q
+  SS --> Q
+```
 
 The connections are:
 
